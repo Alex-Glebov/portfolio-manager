@@ -1,0 +1,6 @@
+name,cost,qty,cost_units,direction,counterpart_id,notes
+Steel Bars,45.50,100,USD,in,SUPPLIER_001,Opening balance - warehouse
+Copper Wire,12.30,500,USD,in,SUPPLIER_002,Opening balance - warehouse
+Aluminum Sheets,28.75,200,USD,in,SUPPLIER_001,Opening balance - warehouse
+Bolts M8,0.15,1000,USD,in,HARDWARE_STORE,Opening balance - warehouse
+Nuts M8,0.12,1000,USD,in,HARDWARE_STORE,Opening balance - warehouse
