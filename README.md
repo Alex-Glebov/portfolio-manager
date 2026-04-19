@@ -71,6 +71,45 @@ accounting = admin, accountant
 2. Each **user** automatically has access to their **own portfolio** (named after username)
 3. Additional portfolios configured in `[portfolios]` section
 
+**Important Clarifications:**
+
+**Default Portfolio (Empty String "") vs Named "default" Portfolio:**
+
+There are two different "default" concepts:
+
+1. **True Default Portfolio** (`""` - empty string):
+   - Used when **no** `X-Portfolio` header is provided
+   - Data stored in: `data/transactions.csv`
+   - **All users** have automatic access
+   - Cannot be restricted via config
+
+2. **Named Portfolio "default"** (if defined in config):
+   - Used when `X-Portfolio: default` header is provided
+   - Data stored in: `data/default/transactions.csv`
+   - Access controlled by `[portfolios]` config section
+   - Example: `default = admin, testuser` means only those users can access it
+
+**User's Own Portfolio:**
+
+When a user registers (e.g., `user_test`), they immediately get:
+- ✅ Automatic access to portfolio named after their username
+- ✅ No config file changes needed
+- ✅ No server restart required
+- ✅ Directory created automatically on first transaction
+
+Example:
+```bash
+# Register new user
+curl -X POST http://localhost:8000/auth/register \
+  -d '{"username": "user_test", "password": "secret123"}'
+
+# Login and use own portfolio immediately
+curl -H "Authorization: Bearer $TOKEN" \
+  -H "X-Portfolio: user_test" \
+  "http://localhost:8000/holdings"
+# Works! No config changes needed.
+```
+
 ### Using Portfolios
 
 Pass the portfolio name via the `X-Portfolio` header:
@@ -126,6 +165,27 @@ data/
     ├── holdings_warehouse_20250420_120000.csv
     └── ...
 ```
+
+## Config.ini Reference
+
+**Important:** The version displayed by the API comes from `__init__.py` (`0.2.0`), **not** from `config.ini`.
+
+**Active Settings (actually used by code):**
+
+| Section | Key | Purpose |
+|---------|-----|---------|
+| `[DEFAULT]` | `debug` | ❌ **Not used** - can be removed |
+| `[database]` | `type` | Database backend type (`csv`) |
+| `[database]` | `data_dir` | Data directory path (`data`) |
+| `[auth]` | `secret_key` | JWT signing key |
+| `[auth]` | `token_expire_minutes` | Token lifetime (30) |
+| `[logging]` | `level` | Log level (`INFO`, `DEBUG`, etc.) |
+| `[logging]` | `file` | Log file path |
+| `[portfolios]` | `name = users` | Portfolio access control |
+
+**Orphaned Settings (defined but never read):**
+- `[DEFAULT] version = 1.0.0` - API version comes from `__init__.py`
+- `[DEFAULT] debug = false` - Not implemented
 
 ## Configuration Priority
 
