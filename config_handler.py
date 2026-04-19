@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
 
-from . import __version__
+try:
+    from . import __version__
+except ImportError:
+    from __init__ import __version__
 
 logger = logging.getLogger(__name__)
 
