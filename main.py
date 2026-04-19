@@ -24,10 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-try:
-    from . import __version__
-except ImportError:
-    from __init__ import __version__
+from __init__ import __version__
 
 # Local imports
 from auth import (
