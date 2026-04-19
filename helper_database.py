@@ -31,6 +31,7 @@ from helper_csv import (
     update_transaction,
     delete_transaction,
     filter_transactions,
+    _read_csv,
 
     # User operations
     init_users,
@@ -103,6 +104,7 @@ __all__ = [
     'update_transaction',
     'delete_transaction',
     'filter_transactions',
+    '_read_csv',
     'get_next_transaction_id',
     'get_transaction_count',
     'transaction_exists',
