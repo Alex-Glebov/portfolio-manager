@@ -25,9 +25,9 @@ import sys
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -43,7 +43,10 @@ from config_handler import (
     DEFAULT_CONFIG_PATH,
     get_api_config,
     load_config,
+    get_portfolios_config,
+    check_portfolio_access,
 )
+from helper_database import DEFAULT_PORTFOLIO
 
 
 def get_config_with_env():
@@ -318,14 +321,62 @@ class ConfigUpdate(BaseModel):
 
 
 # =============================================================================
+# Portfolio Dependencies
+# =============================================================================
+
+def get_current_user_from_token(request: Request) -> Optional[Dict]:
+    """Extract user info from JWT token"""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return None
+
+    token = auth_header[7:]  # Remove 'Bearer '
+    try:
+        from auth import decode_token
+        payload = decode_token(token)
+        if payload:
+            return {
+                'username': payload.get('sub'),
+                'user_id': payload.get('user_id'),
+                'is_admin': payload.get('sub') == 'admin'  # Simple admin check
+            }
+    except Exception:
+        pass
+    return None
+
+
+async def get_portfolio(
+    request: Request,
+    portfolio: Optional[str] = Header(None, description="Portfolio name (empty for default)")
+) -> str:
+    """Extract portfolio from header and validate access"""
+    # Default to empty string (default portfolio)
+    portfolio = portfolio or DEFAULT_PORTFOLIO
+
+    # Get current user info
+    user = get_current_user_from_token(request)
+    username = user.get('username') if user else None
+    is_admin = user.get('is_admin', False) if user else False
+
+    # Check access
+    if not check_portfolio_access(config, username, portfolio, is_admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied to portfolio '{portfolio}'"
+        )
+
+    return portfolio
+
+
+# =============================================================================
 # Helper Functions
 # =============================================================================
 
-def calculate_holdings(name: Optional[str] = None) -> List[HoldingSummary]:
-    """Calculate current holdings, optionally filtered by name"""
+def calculate_holdings(name: Optional[str] = None, portfolio: str = DEFAULT_PORTFOLIO) -> List[HoldingSummary]:
+    """Calculate current holdings for a portfolio, optionally filtered by name"""
     from collections import defaultdict
 
-    transactions = get_all_transactions()
+    transactions = get_all_transactions(portfolio)
     items_data = defaultdict(lambda: {
         "cost_units": "",
         "total_in": 0.0,
@@ -394,7 +445,7 @@ async def root():
 async def health_check():
     """Health check endpoint - public"""
     try:
-        transactions_count = len(get_all_transactions())
+        transactions_count = len(get_all_transactions(DEFAULT_PORTFOLIO))
         return {
             "status": "healthy",
             "timestamp": datetime.utcnow().isoformat(),
@@ -441,14 +492,15 @@ async def get_current_user_info(current_user: User = Depends(get_current_active_
 @app.post("/transactions", response_model=Transaction, status_code=status.HTTP_201_CREATED)
 async def create_transaction_endpoint(
     txn: TransactionCreate,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    portfolio: str = Depends(get_portfolio)
 ):
-    """Record a resource movement (in or out)"""
-    logger.info(f"User '{current_user.username}' creating transaction: {txn.name} {txn.direction}")
+    """Record a resource movement (in or out) in a portfolio"""
+    logger.info(f"User '{current_user.username}' creating transaction in portfolio '{portfolio}': {txn.name} {txn.direction}")
 
     try:
-        new_transaction = create_transaction(txn.model_dump())
-        logger.info(f"Transaction created with ID: {new_transaction['id']}")
+        new_transaction = create_transaction(txn.model_dump(), portfolio=portfolio)
+        logger.info(f"Transaction created with ID: {new_transaction['id']} in portfolio '{portfolio}'")
         return Transaction(**new_transaction)
     except Exception as e:
         logger.error(f"Error creating transaction: {e}")
@@ -465,10 +517,11 @@ async def get_transactions(
     counterpart_id: Optional[str] = None,
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    portfolio: str = Depends(get_portfolio)
 ):
-    """Get transaction history with optional filtering"""
-    logger.debug(f"User '{current_user.username}' fetching transactions")
+    """Get transaction history with optional filtering from a portfolio"""
+    logger.debug(f"User '{current_user.username}' fetching transactions from portfolio '{portfolio}'")
 
     try:
         transactions = filter_transactions(
@@ -476,7 +529,8 @@ async def get_transactions(
             direction=direction.value if direction else None,
             counterpart_id=counterpart_id,
             limit=limit,
-            offset=offset
+            offset=offset,
+            portfolio=portfolio
         )
         return [Transaction(**t) for t in transactions]
     except Exception as e:
@@ -490,14 +544,15 @@ async def get_transactions(
 @app.get("/transactions/{transaction_id}", response_model=Transaction)
 async def get_transaction(
     transaction_id: int,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    portfolio: str = Depends(get_portfolio)
 ):
-    """Get a specific transaction by ID"""
-    logger.debug(f"User '{current_user.username}' fetching transaction {transaction_id}")
+    """Get a specific transaction by ID from a portfolio"""
+    logger.debug(f"User '{current_user.username}' fetching transaction {transaction_id} from portfolio '{portfolio}'")
 
-    txn = get_transaction_by_id(transaction_id)
+    txn = get_transaction_by_id(transaction_id, portfolio=portfolio)
     if txn is None:
-        logger.warning(f"Transaction {transaction_id} not found")
+        logger.warning(f"Transaction {transaction_id} not found in portfolio '{portfolio}'")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Transaction with id {transaction_id} not found"
@@ -509,10 +564,11 @@ async def get_transaction(
 async def update_transaction_endpoint(
     transaction_id: int,
     txn_update: TransactionUpdate,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    portfolio: str = Depends(get_portfolio)
 ):
-    """Update an existing transaction"""
-    logger.info(f"User '{current_user.username}' updating transaction {transaction_id}")
+    """Update an existing transaction in a portfolio"""
+    logger.info(f"User '{current_user.username}' updating transaction {transaction_id} in portfolio '{portfolio}'")
 
     # Filter out None values
     updates = {k: v for k, v in txn_update.model_dump().items() if v is not None}
@@ -524,9 +580,9 @@ async def update_transaction_endpoint(
             detail="No fields to update"
         )
 
-    updated = update_transaction(transaction_id, updates)
+    updated = update_transaction(transaction_id, updates, portfolio=portfolio)
     if updated is None:
-        logger.warning(f"Cannot update: Transaction {transaction_id} not found")
+        logger.warning(f"Cannot update: Transaction {transaction_id} not found in portfolio '{portfolio}'")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Transaction with id {transaction_id} not found"
@@ -538,14 +594,15 @@ async def update_transaction_endpoint(
 @app.delete("/transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_transaction_endpoint(
     transaction_id: int,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    portfolio: str = Depends(get_portfolio)
 ):
-    """Delete a transaction"""
-    logger.info(f"User '{current_user.username}' deleting transaction {transaction_id}")
+    """Delete a transaction from a portfolio"""
+    logger.info(f"User '{current_user.username}' deleting transaction {transaction_id} from portfolio '{portfolio}'")
 
-    success = delete_transaction(transaction_id)
+    success = delete_transaction(transaction_id, portfolio=portfolio)
     if not success:
-        logger.warning(f"Cannot delete: Transaction {transaction_id} not found")
+        logger.warning(f"Cannot delete: Transaction {transaction_id} not found in portfolio '{portfolio}'")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Transaction with id {transaction_id} not found"
@@ -560,24 +617,26 @@ async def delete_transaction_endpoint(
 @app.get("/holdings", response_model=List[HoldingSummary])
 async def get_holdings(
     name: Optional[str] = None,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    portfolio: str = Depends(get_portfolio)
 ):
     """Get current portfolio holdings summary"""
-    logger.debug(f"User '{current_user.username}' fetching holdings")
-    return calculate_holdings(name)
+    logger.debug(f"User '{current_user.username}' fetching holdings from portfolio '{portfolio}'")
+    return calculate_holdings(name, portfolio=portfolio)
 
 
 @app.get("/holdings/{item_name}", response_model=HoldingSummary)
 async def get_holding(
     item_name: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    portfolio: str = Depends(get_portfolio)
 ):
-    """Get holdings for a specific item"""
-    logger.debug(f"User '{current_user.username}' fetching holding for {item_name}")
+    """Get holdings for a specific item in a portfolio"""
+    logger.debug(f"User '{current_user.username}' fetching holding for {item_name} from portfolio '{portfolio}'")
 
-    holdings = calculate_holdings(item_name)
+    holdings = calculate_holdings(item_name, portfolio=portfolio)
     if not holdings:
-        logger.warning(f"No holdings found for item: {item_name}")
+        logger.warning(f"No holdings found for item: {item_name} in portfolio '{portfolio}'")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No holdings found for item: {item_name}"
@@ -586,11 +645,14 @@ async def get_holding(
 
 
 @app.get("/portfolio/summary", response_model=PortfolioSummary)
-async def get_portfolio_summary(current_user: User = Depends(get_current_active_user)):
+async def get_portfolio_summary(
+    current_user: User = Depends(get_current_active_user),
+    portfolio: str = Depends(get_portfolio)
+):
     """Get overall portfolio statistics"""
-    logger.debug(f"User '{current_user.username}' fetching portfolio summary")
+    logger.debug(f"User '{current_user.username}' fetching portfolio summary for '{portfolio}'")
 
-    holdings = calculate_holdings()
+    holdings = calculate_holdings(portfolio=portfolio)
     total_value = 0.0
 
     for h in holdings:
@@ -599,7 +661,7 @@ async def get_portfolio_summary(current_user: User = Depends(get_current_active_
             total_value += current_value
 
     return PortfolioSummary(
-        total_transactions=len(get_all_transactions()),
+        total_transactions=len(get_all_transactions(portfolio=portfolio)),
         total_unique_items=len(holdings),
         total_value_in_portfolio=total_value,
         items=holdings
@@ -609,12 +671,13 @@ async def get_portfolio_summary(current_user: User = Depends(get_current_active_
 @app.get("/portfolio/counterpart/{counterpart_id}/history")
 async def get_counterpart_history(
     counterpart_id: str,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    portfolio: str = Depends(get_portfolio)
 ):
-    """Get transaction history with a specific counterpart"""
-    logger.debug(f"User '{current_user.username}' fetching history for counterpart {counterpart_id}")
+    """Get transaction history with a specific counterpart in a portfolio"""
+    logger.debug(f"User '{current_user.username}' fetching history for counterpart {counterpart_id} from portfolio '{portfolio}'")
 
-    history = filter_transactions(counterpart_id=counterpart_id, limit=10000)
+    history = filter_transactions(counterpart_id=counterpart_id, limit=10000, portfolio=portfolio)
 
     total_in = sum(t['qty'] for t in history if t.get('direction') == Direction.IN.value)
     total_out = sum(t['qty'] for t in history if t.get('direction') == Direction.OUT.value)
@@ -635,20 +698,21 @@ async def get_counterpart_history(
 
 @app.get("/export/transactions")
 async def export_transactions(
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    portfolio: str = Depends(get_portfolio)
 ):
-    """Export all transactions to CSV file"""
-    logger.info(f"User '{current_user.username}' exporting transactions")
+    """Export all transactions to CSV file from a portfolio"""
+    logger.info(f"User '{current_user.username}' exporting transactions from portfolio '{portfolio}'")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    export_path = DATA_DIR / f"exports" / f"transactions_{timestamp}.csv"
+    export_path = DATA_DIR / f"exports" / f"transactions_{portfolio}_{timestamp}.csv"
     export_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        export_transactions_to_csv(export_path)
+        export_transactions_to_csv(export_path, portfolio=portfolio)
         return FileResponse(
             path=export_path,
-            filename=f"transactions_{timestamp}.csv",
+            filename=f"transactions_{portfolio}_{timestamp}.csv",
             media_type="text/csv"
         )
     except Exception as e:
@@ -661,22 +725,23 @@ async def export_transactions(
 
 @app.get("/export/holdings")
 async def export_holdings(
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    portfolio: str = Depends(get_portfolio)
 ):
-    """Export holdings summary to CSV"""
-    logger.info(f"User '{current_user.username}' exporting holdings")
+    """Export holdings summary to CSV from a portfolio"""
+    logger.info(f"User '{current_user.username}' exporting holdings from portfolio '{portfolio}'")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    export_path = DATA_DIR / f"exports" / f"holdings_{timestamp}.csv"
+    export_path = DATA_DIR / f"exports" / f"holdings_{portfolio}_{timestamp}.csv"
     export_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        holdings = calculate_holdings()
+        holdings = calculate_holdings(portfolio=portfolio)
         holdings_dicts = [h.model_dump() for h in holdings]
         export_holdings_to_csv(export_path, holdings_dicts)
         return FileResponse(
             path=export_path,
-            filename=f"holdings_{timestamp}.csv",
+            filename=f"holdings_{portfolio}_{timestamp}.csv",
             media_type="text/csv"
         )
     except Exception as e:

@@ -380,9 +380,9 @@ def update_user(user_id: int, updates: Dict[str, Any]) -> Optional[Dict[str, Any
 # CSV EXPORT
 # =============================================================================
 
-def export_transactions_to_csv(filepath: Path) -> Path:
-    """Export all transactions to CSV file"""
-    transactions = get_all_transactions()
+def export_transactions_to_csv(filepath: Path, portfolio: str = DEFAULT_PORTFOLIO) -> Path:
+    """Export all transactions to CSV file from a portfolio"""
+    transactions = get_all_transactions(portfolio)
 
     # Convert datetime objects back to strings for export
     export_data = []
@@ -392,8 +392,8 @@ def export_transactions_to_csv(filepath: Path) -> Path:
             export_txn['timestamp'] = export_txn['timestamp'].isoformat()
         export_data.append(export_txn)
 
-    _write_csv(filepath, export_data, TRANSACTION_FIELDS)
-    logger.info(f"Exported {len(transactions)} transactions to {filepath}")
+    _write_csv(filepath, export_data, TRANSACTION_FIELDS, portfolio)
+    logger.info(f"Exported {len(transactions)} transactions to {filepath} from portfolio '{portfolio}'")
     return filepath
 
 

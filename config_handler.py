@@ -17,7 +17,7 @@ import configparser
 import logging
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from __init__ import __version__

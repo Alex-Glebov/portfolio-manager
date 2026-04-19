@@ -49,9 +49,8 @@ from helper_csv import (
 
     # Constants
     DATA_DIR,
-    TRANSACTIONS_FILE,
     USERS_FILE,
-    BACKUP_DIR,
+    DEFAULT_PORTFOLIO,
 )
 
 import logging
@@ -62,11 +61,11 @@ logger = logging.getLogger(__name__)
 # CONVENIENCE FUNCTIONS
 # =============================================================================
 
-def init_database():
-    """Initialize all database components"""
-    init_transactions()
+def init_database(portfolio: str = ""):
+    """Initialize all database components for a portfolio"""
+    init_transactions(portfolio)
     init_users()
-    logger.info("Database initialized successfully")
+    logger.info(f"Database initialized successfully for portfolio '{portfolio}'")
 
 
 def get_next_transaction_id() -> int:
@@ -124,7 +123,6 @@ __all__ = [
 
     # Constants
     'DATA_DIR',
-    'TRANSACTIONS_FILE',
     'USERS_FILE',
-    'BACKUP_DIR',
+    'DEFAULT_PORTFOLIO',
 ]

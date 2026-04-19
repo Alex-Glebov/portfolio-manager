@@ -1,12 +1,12 @@
 # Portfolio Manager API
 
-A resource accumulation and warehouse portfolio management system built with FastAPI, featuring CSV database persistence and JWT authentication.
+A resource accumulation and warehouse portfolio management system built with FastAPI, featuring CSV database persistence, JWT authentication, and **multi-portfolio support**.
 
 ## Version
 
-**Current Version:** `0.1.2`
+**Current Version:** `0.2.0`
 
-**Compatibility Range:** Supports portfolio-manager versions `0.1.0` to `0.2.0`
+**Compatibility Range:** Supports portfolio-manager versions `0.2.0` to `0.3.0`
 
 ## Features
 
@@ -14,6 +14,7 @@ A resource accumulation and warehouse portfolio management system built with Fas
 - **CSV Database**: Persistent storage with automatic backups
 - **JWT Authentication**: Secure login with OAuth2
 - **Portfolio Tracking**: Real-time holdings calculation
+- **Multi-Portfolio Support**: Separate portfolios with access control
 - **Initial Portfolio Loading**: Load starting data from CSV
 - **Comprehensive Logging**: Full audit trail of decisions and errors
 - **Modular Architecture**: Easy to switch from CSV to real database
@@ -34,9 +35,96 @@ A resource accumulation and warehouse portfolio management system built with Fas
 │  (helper_db.py)   - Future: SQL database implementation     │
 ├─────────────────────────────────────────────────────────────┤
 │  config.ini       - Application configuration               │
-│  data/            - CSV database files & backups              │
+│  data/            - CSV database files & backups            │
+│   ├── {portfolio}/transactions.csv  - Per-portfolio data  │
+│   ├── users.csv                       - Shared users        │
+│   └── backups/                        - Auto backups         │
 │  logs/            - Application logs                          │
 └─────────────────────────────────────────────────────────────┘
+```
+
+## Multi-Portfolio Support
+
+The API supports multiple isolated portfolios. Each portfolio has its own data directory and transactions.
+
+### Portfolio Access Control
+
+Access is configured in `config.ini` `[portfolios]` section:
+
+```ini
+[portfolios]
+# Format: portfolio_name = comma-separated list of allowed users
+# Admin has access to all portfolios automatically
+# Empty portfolio name "" is the default portfolio
+
+# Default portfolio (empty name) - accessible by admin and testuser
+default = admin, testuser
+
+# Custom portfolios
+warehouse = admin, manager, operator
+sales = admin, sales1, sales2
+accounting = admin, accountant
+```
+
+**Access Rules:**
+1. **Admin** has access to **all portfolios**
+2. Each **user** automatically has access to their **own portfolio** (named after username)
+3. Additional portfolios configured in `[portfolios]` section
+
+### Using Portfolios
+
+Pass the portfolio name via the `X-Portfolio` header:
+
+```bash
+# Access default portfolio (no header needed)
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8000/holdings"
+
+# Access specific portfolio
+curl -H "Authorization: Bearer $TOKEN" \
+  -H "X-Portfolio: warehouse" \
+  "http://localhost:8000/holdings"
+
+# Create transaction in specific portfolio
+curl -X POST "http://localhost:8000/transactions" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Portfolio: warehouse" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Steel Bars",
+    "cost": 45.50,
+    "qty": 100,
+    "cost_units": "USD",
+    "direction": "in",
+    "counterpart_id": "SUPPLIER_001"
+  }'
+```
+
+### Data Structure
+
+Each portfolio is isolated in its own directory:
+
+```
+data/
+├── users.csv                    # Shared user database
+├── transactions.csv             # Default portfolio (empty name)
+├── backups/                     # Default portfolio backups
+│   └── transactions_20250420_120000.csv
+│
+├── warehouse/                   # "warehouse" portfolio
+│   ├── transactions.csv
+│   └── backups/
+│       └── transactions_20250420_120000.csv
+│
+├── sales/                       # "sales" portfolio
+│   ├── transactions.csv
+│   └── backups/
+│       └── transactions_20250420_120000.csv
+│
+└── exports/                     # Export files
+    ├── transactions_warehouse_20250420_120000.csv
+    ├── holdings_warehouse_20250420_120000.csv
+    └── ...
 ```
 
 ## Configuration Priority
@@ -121,6 +209,7 @@ pip install -r requirements.txt
 # Key settings:
 # - auth.secret_key: Change this in production!
 # - initial_portfolio: Configure initial CSV loading
+# - portfolios: Configure multi-portfolio access control
 # - logging.level: Set to DEBUG for troubleshooting
 ```
 
@@ -166,7 +255,7 @@ Response:
 ### Using the Token
 Include in requests:
 ```bash
-curl -H "Authorization: Bearer eyJ..." \
+curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8000/holdings"
 ```
 
@@ -189,25 +278,25 @@ curl -X POST "http://localhost:8000/auth/register" \
 ### Transactions
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| POST | `/transactions` | Yes | Record movement |
-| GET | `/transactions` | Yes | List transactions |
-| GET | `/transactions/{id}` | Yes | Get specific |
-| PUT | `/transactions/{id}` | Yes | Update |
-| DELETE | `/transactions/{id}` | Yes | Delete |
+| POST | `/transactions` | Yes | Record movement (in portfolio) |
+| GET | `/transactions` | Yes | List transactions (from portfolio) |
+| GET | `/transactions/{id}` | Yes | Get specific (from portfolio) |
+| PUT | `/transactions/{id}` | Yes | Update (in portfolio) |
+| DELETE | `/transactions/{id}` | Yes | Delete (from portfolio) |
 
 ### Holdings & Portfolio
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/holdings` | Yes | All holdings |
-| GET | `/holdings/{name}` | Yes | Specific item |
+| GET | `/holdings` | Yes | All holdings (from portfolio) |
+| GET | `/holdings/{name}` | Yes | Specific item (from portfolio) |
 | GET | `/portfolio/summary` | Yes | Portfolio stats |
 | GET | `/portfolio/counterpart/{id}/history` | Yes | Counterpart audit |
 
 ### Export
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/export/transactions` | Yes | Download CSV |
-| GET | `/export/holdings` | Yes | Download CSV |
+| GET | `/export/transactions` | Yes | Download CSV (from portfolio) |
+| GET | `/export/holdings` | Yes | Download CSV (from portfolio) |
 
 ### System
 | Method | Endpoint | Auth | Description |
@@ -216,9 +305,11 @@ curl -X POST "http://localhost:8000/auth/register" \
 | GET | `/health` | No | Health check |
 | GET | `/config` | Yes | View config |
 
+**Note:** All protected endpoints accept an optional `X-Portfolio` header to specify the portfolio. If omitted, the default portfolio is used.
+
 ## Example Usage
 
-### Add Inventory (Incoming)
+### Add Inventory (Incoming) to Default Portfolio
 ```bash
 curl -X POST "http://localhost:8000/transactions" \
   -H "Authorization: Bearer $TOKEN" \
@@ -234,10 +325,28 @@ curl -X POST "http://localhost:8000/transactions" \
   }'
 ```
 
+### Add Inventory to Specific Portfolio
+```bash
+curl -X POST "http://localhost:8000/transactions" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Portfolio: warehouse" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Steel Bars",
+    "cost": 45.50,
+    "qty": 100,
+    "cost_units": "USD",
+    "direction": "in",
+    "counterpart_id": "SUPPLIER_001",
+    "notes": "Warehouse stock"
+  }'
+```
+
 ### Remove Inventory (Outgoing)
 ```bash
 curl -X POST "http://localhost:8000/transactions" \
   -H "Authorization: Bearer $TOKEN" \
+  -H "X-Portfolio: warehouse" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Steel Bars",
@@ -252,7 +361,13 @@ curl -X POST "http://localhost:8000/transactions" \
 
 ### Check Holdings
 ```bash
+# Default portfolio
 curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8000/holdings"
+
+# Specific portfolio
+curl -H "Authorization: Bearer $TOKEN" \
+  -H "X-Portfolio: warehouse" \
   "http://localhost:8000/holdings"
 ```
 
@@ -291,6 +406,8 @@ Steel Bars,45.50,100,USD,in,SUPPLIER_001,Opening balance
 Copper Wire,12.30,500,USD,in,SUPPLIER_002,Opening balance
 ```
 
+**Note:** Initial portfolio loading only loads into the default portfolio. For multi-portfolio setup, use the API endpoints after startup.
+
 ## Database Architecture
 
 ### Controlled Interface Pattern
@@ -311,14 +428,19 @@ This allows transparent switching without changing API code.
 
 ```
 data/
-├── transactions.csv     # Main transaction database
-├── users.csv           # User credentials
-├── backups/            # Automatic backups
-│   ├── transactions_20250416_120000.csv
-│   └── ...
-└── exports/            # User exports
-    ├── transactions_20250416_120000.csv
-    └── holdings_20250416_120000.csv
+├── users.csv                    # Shared user database
+├── transactions.csv             # Default portfolio
+├── backups/                   # Default portfolio backups
+│   └── transactions_20250420_120000.csv
+│
+├── {portfolio}/               # Per-portfolio directories
+│   ├── transactions.csv
+│   └── backups/
+│       └── transactions_20250420_120000.csv
+│
+└── exports/                   # User exports
+    ├── transactions_{portfolio}_{timestamp}.csv
+    └── holdings_{portfolio}_{timestamp}.csv
 ```
 
 ## Logging
@@ -354,19 +476,23 @@ file = logs/portfolio_manager.log
    cors_origins = https://yourdomain.com
    ```
 
+5. **Review portfolio access** - admin has access to all portfolios
+
 ## Testing
 
 See the companion test project: `portfolio-manager-tests/`
 
 ### Version Compatibility
 
-This commit (`0.1.2`) is tested with:
-- `portfolio-manager-tests` version range: `0.1.0` to `0.2.0`
+This commit (`0.2.0`) is tested with:
+- `portfolio-manager-tests` version `0.1.0`
+- **All 37 tests passed**
 
 When running tests, ensure the API version matches the test expectations.
 
 ## Future Extensions
 
+- [x] Multi-portfolio support with access control
 - [ ] SQLite/PostgreSQL database backend (`helper_db.py`)
 - [ ] User roles and permissions
 - [ ] Transaction batch imports
@@ -380,9 +506,9 @@ When running tests, ensure the API version matches the test expectations.
 portfolio-manager/
 ├── main.py              # FastAPI application
 ├── auth.py              # JWT authentication
-├── config_handler.py    # INI configuration
+├── config_handler.py    # INI configuration (portfolio access control)
 ├── helper_database.py   # Database abstraction
-├── helper_csv.py        # CSV implementation
+├── helper_csv.py        # CSV implementation (per-portfolio storage)
 ├── __init__.py          # Version and compatibility
 ├── config.ini           # Configuration
 ├── requirements.txt     # Dependencies
