@@ -20,6 +20,7 @@ Configuration priority (highest to lowest):
 """
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime
 from enum import Enum
@@ -31,14 +32,60 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from __init__ import __version__, __min_version__, __max_version__
+from __init__ import __version__
+
+# =============================================================================
+# Configuration Loading
+# =============================================================================
+
+# We need to load config early for CLI parser defaults
+from config_handler import (
+    DEFAULT_CONFIG_PATH,
+    get_api_config,
+    load_config,
+)
+
+
+def get_config_with_env():
+    """Load config and apply environment variable overrides.
+
+    Priority: Environment variables override config file values.
+    """
+    # 1. Load config file (base)
+    cfg = load_config(DEFAULT_CONFIG_PATH)
+    api_cfg = get_api_config(cfg)
+
+    # 2. Apply environment variable overrides (higher priority)
+    env_host = os.environ.get('PORTFOLIO_MANAGER_HOST')
+    env_port = os.environ.get('PORTFOLIO_MANAGER_PORT')
+    env_user = os.environ.get('PORTFOLIO_MANAGER_USER')
+    env_password = os.environ.get('PORTFOLIO_MANAGER_PASSWORD')
+
+    if env_host:
+        api_cfg['host'] = env_host
+    if env_port:
+        try:
+            api_cfg['port'] = int(env_port)
+        except ValueError:
+            pass
+    if env_user:
+        api_cfg['username'] = env_user
+    if env_password:
+        api_cfg['password'] = env_password
+
+    return cfg, api_cfg
+
+
+# Load config with env overrides (for CLI defaults)
+config, api_config_with_env = get_config_with_env()
+
 
 # =============================================================================
 # Command Line Argument Parsing
 # =============================================================================
 
 def parse_cli_args():
-    """Parse command line arguments"""
+    """Parse command line arguments with config+env values as defaults"""
     parser = argparse.ArgumentParser(
         description='Portfolio Manager API',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -58,33 +105,37 @@ Examples:
     parser.add_argument(
         '--host',
         type=str,
-        help='Server host (default: from config or 0.0.0.0)'
+        default=api_config_with_env.get('host', '0.0.0.0'),
+        help=f"Server host (default: {api_config_with_env.get('host', '0.0.0.0')})"
     )
     parser.add_argument(
         '--port',
         type=int,
-        help='Server port (default: from config or 8000)'
+        default=api_config_with_env.get('port', 8000),
+        help=f"Server port (default: {api_config_with_env.get('port', 8000)})"
     )
     parser.add_argument(
         '--user', '--username',
         dest='username',
         type=str,
-        help='Default admin username (can also set via PORTFOLIO_MANAGER_USER env var)'
+        default=api_config_with_env.get('username', ''),
+        help='Default admin username'
     )
     parser.add_argument(
         '--password',
         type=str,
-        help='Default admin password (can also set via PORTFOLIO_MANAGER_PASSWORD env var)'
+        default=api_config_with_env.get('password', ''),
+        help='Default admin password'
     )
     parser.add_argument(
         '--version',
         action='version',
-        version=f'%(prog)s {__version__} (supports portfolio-manager {__min_version__} to {__max_version__})'
+        version=f'%(prog)s {__version__}'
     )
     return parser.parse_args()
 
 
-# Parse CLI args early
+# Parse CLI args (highest priority)
 cli_args = parse_cli_args()
 
 # Local imports
@@ -99,10 +150,7 @@ from auth import (
     register_user,
 )
 from config_handler import (
-    DEFAULT_CONFIG_PATH,
-    get_api_config,
     get_initial_portfolio_settings,
-    load_config,
     load_initial_portfolio_if_configured,
     setup_logging_from_config,
 )
@@ -123,8 +171,6 @@ from helper_database import (
 # Logging Setup
 # =============================================================================
 
-# Load config for logging setup
-config = load_config(DEFAULT_CONFIG_PATH)
 setup_logging_from_config(config)
 
 logger = logging.getLogger(__name__)
@@ -142,11 +188,16 @@ loaded_count = load_initial_portfolio_if_configured(config)
 if loaded_count > 0:
     logger.info(f"Initial portfolio loaded: {loaded_count} transactions")
 
-# Create default admin if no users exist
+# Create default admin using CLI args if provided
+default_username = cli_args.username or "admin"
+default_password = cli_args.password or "admin"
 try:
-    admin = create_admin_user(username="admin", password="admin")
+    admin = create_admin_user(username=default_username, password=default_password)
     if admin:
-        logger.warning("Created default admin user (username: admin, password: admin). Please change password!")
+        if cli_args.password:
+            logger.info(f"Created admin user: {default_username}")
+        else:
+            logger.warning(f"Created default admin user (username: {default_username}, password: {default_password}). Please change password!")
 except Exception as e:
     logger.error(f"Error creating admin user: {e}")
 
