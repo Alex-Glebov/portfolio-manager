@@ -347,7 +347,7 @@ def get_current_user_from_token(request: Request) -> Optional[Dict]:
 
 async def get_portfolio(
     request: Request,
-    portfolio: Optional[str] = Header(None, description="Portfolio name (empty for default)")
+    portfolio: Optional[str] = Header(None, alias="X-Portfolio", description="Portfolio name (empty for default)")
 ) -> str:
     """Extract portfolio from header and validate access"""
     # Default to empty string (default portfolio)
