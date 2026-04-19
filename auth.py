@@ -291,7 +291,7 @@ def handle_login(form_data: OAuth2PasswordRequestForm) -> Token:
 def create_admin_user(username: str = "admin", password: str = "admin") -> Optional[User]:
     """Create default admin user if no users exist"""
     # Check if any users exist
-    from helper_database import _read_csv, USERS_FILE
+    from helper_csv import _read_csv, USERS_FILE
 
     try:
         users = _read_csv(USERS_FILE)

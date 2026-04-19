@@ -602,5 +602,6 @@ if __name__ == "__main__":
         "main:app",
         host=api_config['host'],
         port=api_config['port'],
-        reload=api_config['reload']
+        reload=api_config['reload'],
+        reload_excludes=["data/*", "logs/*"]
     )
