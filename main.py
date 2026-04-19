@@ -11,7 +11,14 @@ Features:
 - Portfolio holdings calculation
 - Initial portfolio loading from CSV
 - Comprehensive logging
+
+Configuration priority (highest to lowest):
+1. Command line arguments (--host, --port, --user, --password)
+2. Environment variables (PORTFOLIO_MANAGER_HOST, PORTFOLIO_MANAGER_PORT, PORTFOLIO_MANAGER_USER, PORTFOLIO_MANAGER_PASSWORD)
+3. Config file (config.ini)
+4. Default values
 """
+import argparse
 import logging
 import sys
 from datetime import datetime
@@ -24,7 +31,61 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from __init__ import __version__
+from __init__ import __version__, __min_version__, __max_version__
+
+# =============================================================================
+# Command Line Argument Parsing
+# =============================================================================
+
+def parse_cli_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description='Portfolio Manager API',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Configuration priority (highest to lowest):
+  1. Command line arguments (--host, --port, --user, --password)
+  2. Environment variables (PORTFOLIO_MANAGER_HOST, PORTFOLIO_MANAGER_PORT, etc.)
+  3. Config file (config.ini)
+  4. Default values
+
+Examples:
+  python main.py
+  python main.py --host 127.0.0.1 --port 9000
+  python main.py --user admin --password secret
+        """
+    )
+    parser.add_argument(
+        '--host',
+        type=str,
+        help='Server host (default: from config or 0.0.0.0)'
+    )
+    parser.add_argument(
+        '--port',
+        type=int,
+        help='Server port (default: from config or 8000)'
+    )
+    parser.add_argument(
+        '--user', '--username',
+        dest='username',
+        type=str,
+        help='Default admin username (can also set via PORTFOLIO_MANAGER_USER env var)'
+    )
+    parser.add_argument(
+        '--password',
+        type=str,
+        help='Default admin password (can also set via PORTFOLIO_MANAGER_PASSWORD env var)'
+    )
+    parser.add_argument(
+        '--version',
+        action='version',
+        version=f'%(prog)s {__version__} (supports portfolio-manager {__min_version__} to {__max_version__})'
+    )
+    return parser.parse_args()
+
+
+# Parse CLI args early
+cli_args = parse_cli_args()
 
 # Local imports
 from auth import (
@@ -101,8 +162,22 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Get API config for CORS
+# Get API config for CORS (includes env var resolution)
 api_config = get_api_config(config)
+
+# Apply CLI argument overrides (highest priority)
+if cli_args.host:
+    api_config['host'] = cli_args.host
+    logger.info(f"Host overridden by CLI: {cli_args.host}")
+if cli_args.port:
+    api_config['port'] = cli_args.port
+    logger.info(f"Port overridden by CLI: {cli_args.port}")
+if cli_args.username:
+    api_config['username'] = cli_args.username
+    logger.info(f"Username set by CLI: {cli_args.username}")
+if cli_args.password:
+    api_config['password'] = cli_args.password
+    logger.info("Password set by CLI (value hidden)")
 
 app.add_middleware(
     CORSMiddleware,

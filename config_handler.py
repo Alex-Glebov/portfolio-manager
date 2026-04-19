@@ -6,9 +6,16 @@ Manages INI file configuration including:
 - CSV import paths
 - Database settings
 - Logging configuration
+
+Configuration priority (highest to lowest):
+1. Command line arguments
+2. Environment variables
+3. Config file (config.ini)
+4. Default values
 """
 import configparser
 import logging
+import os
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -60,7 +67,9 @@ def get_default_config() -> configparser.RawConfigParser:
         'host': '0.0.0.0',
         'port': '8000',
         'reload': 'true',
-        'cors_origins': '*'
+        'cors_origins': '*',
+        'username': '',  # Can be set via CLI, env, or config
+        'password': ''   # Can be set via CLI, env, or config
     }
 
     # Logging settings
@@ -224,11 +233,34 @@ def get_auth_config(config: configparser.RawConfigParser) -> Dict[str, Any]:
 
 
 def get_api_config(config: configparser.RawConfigParser) -> Dict[str, Any]:
-    """Get API server configuration"""
+    """Get API server configuration with env variable override support
+
+    Priority: env vars > config file > defaults
+    """
     section = config['api']
+
+    # Environment variable names
+    env_host = os.environ.get('PORTFOLIO_MANAGER_HOST')
+    env_port = os.environ.get('PORTFOLIO_MANAGER_PORT')
+    env_user = os.environ.get('PORTFOLIO_MANAGER_USER')
+    env_password = os.environ.get('PORTFOLIO_MANAGER_PASSWORD')
+
+    # Get port from env or config or default
+    port = 8000
+    if env_port:
+        try:
+            port = int(env_port)
+        except ValueError:
+            logger.warning(f"Invalid PORTFOLIO_MANAGER_PORT value: {env_port}, using config or default")
+            port = section.getint('port', 8000)
+    else:
+        port = section.getint('port', 8000)
+
     return {
-        'host': section.get('host', '0.0.0.0'),
-        'port': section.getint('port', 8000),
+        'host': env_host or section.get('host', '0.0.0.0'),
+        'port': port,
         'reload': section.getboolean('reload', True),
-        'cors_origins': section.get('cors_origins', '*').split(',')
+        'cors_origins': section.get('cors_origins', '*').split(','),
+        'username': env_user or section.get('username', ''),
+        'password': env_password or section.get('password', '')
     }
