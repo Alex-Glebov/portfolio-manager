@@ -3,6 +3,7 @@ CSV Database Helper - Portfolio Manager
 
 All database operations implemented using CSV files.
 This module provides a controlled interface for data persistence.
+Supports multiple portfolios with separate data directories.
 """
 import csv
 import os
@@ -16,15 +17,36 @@ logger = logging.getLogger(__name__)
 
 # Default paths
 DATA_DIR = Path("data")
-TRANSACTIONS_FILE = DATA_DIR / "transactions.csv"
 USERS_FILE = DATA_DIR / "users.csv"
-BACKUP_DIR = DATA_DIR / "backups"
+
+# Portfolio support - each portfolio has its own subdirectory
+DEFAULT_PORTFOLIO = ""  # Empty string represents default portfolio
 
 
-def _ensure_data_dir():
-    """Ensure data directory exists"""
+def _get_portfolio_dir(portfolio: str = DEFAULT_PORTFOLIO) -> Path:
+    """Get data directory for a portfolio"""
+    if portfolio and portfolio != DEFAULT_PORTFOLIO:
+        return DATA_DIR / portfolio
+    return DATA_DIR
+
+
+def _get_transactions_file(portfolio: str = DEFAULT_PORTFOLIO) -> Path:
+    """Get transactions file path for a portfolio"""
+    return _get_portfolio_dir(portfolio) / "transactions.csv"
+
+
+def _get_backup_dir(portfolio: str = DEFAULT_PORTFOLIO) -> Path:
+    """Get backup directory for a portfolio"""
+    return _get_portfolio_dir(portfolio) / "backups"
+
+
+def _ensure_data_dir(portfolio: str = DEFAULT_PORTFOLIO):
+    """Ensure data directory exists for a portfolio"""
+    portfolio_dir = _get_portfolio_dir(portfolio)
+    portfolio_dir.mkdir(parents=True, exist_ok=True)
+    _get_backup_dir(portfolio).mkdir(parents=True, exist_ok=True)
+    # Also ensure base data dir and users file exist
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _read_csv(filepath: Path) -> List[Dict[str, Any]]:
@@ -44,13 +66,13 @@ def _read_csv(filepath: Path) -> List[Dict[str, Any]]:
         raise
 
 
-def _write_csv(filepath: Path, data: List[Dict[str, Any]], fieldnames: List[str]):
+def _write_csv(filepath: Path, data: List[Dict[str, Any]], fieldnames: List[str], portfolio: str = DEFAULT_PORTFOLIO):
     """Write list of dictionaries to CSV file"""
-    _ensure_data_dir()
+    _ensure_data_dir(portfolio)
 
     # Create backup if file exists
     if filepath.exists():
-        _backup_file(filepath)
+        _backup_file(filepath, portfolio)
 
     try:
         with open(filepath, 'w', newline='', encoding='utf-8') as f:
@@ -63,11 +85,11 @@ def _write_csv(filepath: Path, data: List[Dict[str, Any]], fieldnames: List[str]
         raise
 
 
-def _backup_file(filepath: Path):
+def _backup_file(filepath: Path, portfolio: str = DEFAULT_PORTFOLIO):
     """Create timestamped backup of file"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_name = f"{filepath.stem}_{timestamp}{filepath.suffix}"
-    backup_path = BACKUP_DIR / backup_name
+    backup_path = _get_backup_dir(portfolio) / backup_name
     try:
         shutil.copy2(filepath, backup_path)
         logger.info(f"Created backup: {backup_path}")
@@ -128,36 +150,38 @@ USER_FIELDS = list(USER_SCHEMA.keys())
 # TRANSACTION OPERATIONS
 # =============================================================================
 
-def init_transactions() -> bool:
+def init_transactions(portfolio: str = DEFAULT_PORTFOLIO) -> bool:
     """Initialize transactions CSV with headers if not exists"""
-    _ensure_data_dir()
-    if not TRANSACTIONS_FILE.exists():
-        _write_csv(TRANSACTIONS_FILE, [], TRANSACTION_FIELDS)
-        logger.info(f"Initialized transactions database: {TRANSACTIONS_FILE}")
+    _ensure_data_dir(portfolio)
+    transactions_file = _get_transactions_file(portfolio)
+    if not transactions_file.exists():
+        _write_csv(transactions_file, [], TRANSACTION_FIELDS, portfolio)
+        logger.info(f"Initialized transactions database: {transactions_file}")
         return True
     return False
 
 
-def get_all_transactions() -> List[Dict[str, Any]]:
-    """Get all transactions from CSV"""
-    init_transactions()
-    rows = _read_csv(TRANSACTIONS_FILE)
+def get_all_transactions(portfolio: str = DEFAULT_PORTFOLIO) -> List[Dict[str, Any]]:
+    """Get all transactions from CSV for a portfolio"""
+    init_transactions(portfolio)
+    transactions_file = _get_transactions_file(portfolio)
+    rows = _read_csv(transactions_file)
     return [_convert_types(row, TRANSACTION_SCHEMA) for row in rows]
 
 
-def get_transaction_by_id(transaction_id: int) -> Optional[Dict[str, Any]]:
-    """Get single transaction by ID"""
-    transactions = get_all_transactions()
+def get_transaction_by_id(transaction_id: int, portfolio: str = DEFAULT_PORTFOLIO) -> Optional[Dict[str, Any]]:
+    """Get single transaction by ID from a portfolio"""
+    transactions = get_all_transactions(portfolio)
     for txn in transactions:
         if int(txn.get('id', 0)) == transaction_id:
             return txn
-    logger.warning(f"Transaction with id {transaction_id} not found")
+    logger.warning(f"Transaction with id {transaction_id} not found in portfolio '{portfolio}'")
     return None
 
 
-def create_transaction(transaction_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Create new transaction and append to CSV"""
-    transactions = get_all_transactions()
+def create_transaction(transaction_data: Dict[str, Any], portfolio: str = DEFAULT_PORTFOLIO) -> Dict[str, Any]:
+    """Create new transaction and append to CSV in a portfolio"""
+    transactions = get_all_transactions(portfolio)
 
     # Auto-assign ID if not provided
     if 'id' not in transaction_data or transaction_data['id'] is None:
@@ -185,14 +209,15 @@ def create_transaction(transaction_data: Dict[str, Any]) -> Dict[str, Any]:
         transaction_data['timestamp'] = transaction_data['timestamp'].isoformat()
 
     transactions.append(transaction_data)
-    _write_csv(TRANSACTIONS_FILE, transactions, TRANSACTION_FIELDS)
-    logger.info(f"Created transaction ID {transaction_data['id']}")
+    transactions_file = _get_transactions_file(portfolio)
+    _write_csv(transactions_file, transactions, TRANSACTION_FIELDS, portfolio)
+    logger.info(f"Created transaction ID {transaction_data['id']} in portfolio '{portfolio}'")
     return transaction_data
 
 
-def update_transaction(transaction_id: int, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Update existing transaction"""
-    transactions = get_all_transactions()
+def update_transaction(transaction_id: int, updates: Dict[str, Any], portfolio: str = DEFAULT_PORTFOLIO) -> Optional[Dict[str, Any]]:
+    """Update existing transaction in a portfolio"""
+    transactions = get_all_transactions(portfolio)
 
     for i, txn in enumerate(transactions):
         if int(txn.get('id', 0)) == transaction_id:
@@ -213,26 +238,28 @@ def update_transaction(transaction_id: int, updates: Dict[str, Any]) -> Optional
                     logger.warning(f"Could not recalculate total_value: {e}")
 
             transactions[i] = txn
-            _write_csv(TRANSACTIONS_FILE, transactions, TRANSACTION_FIELDS)
-            logger.info(f"Updated transaction ID {transaction_id}")
+            transactions_file = _get_transactions_file(portfolio)
+            _write_csv(transactions_file, transactions, TRANSACTION_FIELDS, portfolio)
+            logger.info(f"Updated transaction ID {transaction_id} in portfolio '{portfolio}'")
             return txn
 
-    logger.warning(f"Cannot update: Transaction with id {transaction_id} not found")
+    logger.warning(f"Cannot update: Transaction with id {transaction_id} not found in portfolio '{portfolio}'")
     return None
 
 
-def delete_transaction(transaction_id: int) -> bool:
-    """Delete transaction by ID"""
-    transactions = get_all_transactions()
+def delete_transaction(transaction_id: int, portfolio: str = DEFAULT_PORTFOLIO) -> bool:
+    """Delete transaction by ID from a portfolio"""
+    transactions = get_all_transactions(portfolio)
     original_count = len(transactions)
     transactions = [t for t in transactions if int(t.get('id', 0)) != transaction_id]
 
     if len(transactions) == original_count:
-        logger.warning(f"Cannot delete: Transaction with id {transaction_id} not found")
+        logger.warning(f"Cannot delete: Transaction with id {transaction_id} not found in portfolio '{portfolio}'")
         return False
 
-    _write_csv(TRANSACTIONS_FILE, transactions, TRANSACTION_FIELDS)
-    logger.info(f"Deleted transaction ID {transaction_id}")
+    transactions_file = _get_transactions_file(portfolio)
+    _write_csv(transactions_file, transactions, TRANSACTION_FIELDS, portfolio)
+    logger.info(f"Deleted transaction ID {transaction_id} from portfolio '{portfolio}'")
     return True
 
 
@@ -241,10 +268,11 @@ def filter_transactions(
     direction: Optional[str] = None,
     counterpart_id: Optional[str] = None,
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
+    portfolio: str = DEFAULT_PORTFOLIO
 ) -> List[Dict[str, Any]]:
-    """Filter transactions with pagination"""
-    transactions = get_all_transactions()
+    """Filter transactions with pagination from a portfolio"""
+    transactions = get_all_transactions(portfolio)
 
     if name:
         transactions = [t for t in transactions if t.get('name') == name]

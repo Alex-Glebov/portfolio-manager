@@ -264,3 +264,53 @@ def get_api_config(config: configparser.RawConfigParser) -> Dict[str, Any]:
         'username': env_user or section.get('username', ''),
         'password': env_password or section.get('password', '')
     }
+
+
+def get_portfolios_config(config: configparser.RawConfigParser) -> Dict[str, List[str]]:
+    """Get portfolios configuration
+
+    Returns dict mapping portfolio name to list of allowed users.
+    Empty portfolio name "" represents the default portfolio.
+    Admin has access to all portfolios automatically.
+    """
+    portfolios = {}
+    if 'portfolios' in config:
+        section = config['portfolios']
+        for portfolio_name in section:
+            users_str = section.get(portfolio_name, '')
+            users = [u.strip() for u in users_str.split(',') if u.strip()]
+            portfolios[portfolio_name] = users
+    return portfolios
+
+
+def get_user_portfolios(config: configparser.RawConfigParser, username: str, is_admin: bool = False) -> List[str]:
+    """Get list of portfolios a user has access to"""
+    if is_admin:
+        # Admin has access to all portfolios
+        portfolios = get_portfolios_config(config)
+        return list(portfolios.keys())
+
+    # Get user's own portfolio (named after user) and portfolios from config
+    user_portfolios = {username}  # User's own portfolio
+    portfolios = get_portfolios_config(config)
+
+    for portfolio_name, allowed_users in portfolios.items():
+        if username in allowed_users:
+            user_portfolios.add(portfolio_name)
+
+    return list(user_portfolios)
+
+
+def check_portfolio_access(config: configparser.RawConfigParser, username: str, portfolio: str, is_admin: bool = False) -> bool:
+    """Check if user has access to a portfolio"""
+    if is_admin:
+        return True
+
+    if portfolio == username:
+        return True  # User always has access to their own portfolio
+
+    portfolios = get_portfolios_config(config)
+    if portfolio in portfolios:
+        return username in portfolios[portfolio]
+
+    return portfolio == ''  # Default portfolio access depends on config
