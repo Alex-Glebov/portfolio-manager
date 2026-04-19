@@ -69,12 +69,22 @@ class UserCreate(BaseModel):
 # =============================================================================
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password against hash"""
+    """Verify password against hash - handles bcrypt 72-byte limit"""
+    # bcrypt has a 72-byte limit; pre-hash long passwords to match hash generation
+    password_bytes = plain_password.encode('utf-8')
+    if len(password_bytes) > 72:
+        import hashlib
+        plain_password = hashlib.sha256(password_bytes).hexdigest()[:72]
     return pwd_context.verify(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
-    """Generate password hash"""
+    """Generate password hash - handles bcrypt 72-byte limit"""
+    # bcrypt has a 72-byte limit; pre-hash long passwords to avoid errors
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > 72:
+        import hashlib
+        password = hashlib.sha256(password_bytes).hexdigest()[:72]
     return pwd_context.hash(password)
 
 
