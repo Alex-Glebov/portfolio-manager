@@ -2,6 +2,12 @@
 
 A resource accumulation and warehouse portfolio management system built with FastAPI, featuring CSV database persistence and JWT authentication.
 
+## Version
+
+**Current Version:** `0.1.2`
+
+**Compatibility Range:** Supports portfolio-manager versions `0.1.0` to `0.2.0`
+
 ## Features
 
 - **Transaction-based**: Records all resource movements (in/out)
@@ -11,6 +17,7 @@ A resource accumulation and warehouse portfolio management system built with Fas
 - **Initial Portfolio Loading**: Load starting data from CSV
 - **Comprehensive Logging**: Full audit trail of decisions and errors
 - **Modular Architecture**: Easy to switch from CSV to real database
+- **Flexible Configuration**: CLI args, env vars, or config file
 
 ## Architecture
 
@@ -30,6 +37,52 @@ A resource accumulation and warehouse portfolio management system built with Fas
 │  data/            - CSV database files & backups              │
 │  logs/            - Application logs                          │
 └─────────────────────────────────────────────────────────────┘
+```
+
+## Configuration Priority
+
+Configuration values are loaded in this priority (highest to lowest):
+
+1. **Command line arguments** (`--host`, `--port`, `--user`, `--password`)
+2. **Environment variables** (`PORTFOLIO_MANAGER_HOST`, `PORTFOLIO_MANAGER_PORT`, etc.)
+3. **Config file** (`config.ini`)
+4. **Default values**
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORTFOLIO_MANAGER_HOST` | Server bind address | `0.0.0.0` |
+| `PORTFOLIO_MANAGER_PORT` | Server port | `8000` |
+| `PORTFOLIO_MANAGER_USER` | Default admin username | (none) |
+| `PORTFOLIO_MANAGER_PASSWORD` | Default admin password | (none) |
+
+### Command Line Arguments
+
+```bash
+python main.py --help
+```
+
+Options:
+- `--host HOST` - Server host (overrides config)
+- `--port PORT` - Server port (overrides config)
+- `--user USERNAME` - Default admin username
+- `--password PASSWORD` - Default admin password
+- `--version` - Show version and compatibility range
+
+Examples:
+```bash
+# Show version
+python main.py --version
+
+# Run on custom host/port
+python main.py --host 127.0.0.1 --port 9000
+
+# Set default credentials
+python main.py --user admin --password secret123
+
+# Via environment variables
+PORTFOLIO_MANAGER_HOST=0.0.0.0 PORTFOLIO_MANAGER_PORT=8080 python main.py
 ```
 
 ## Data Model
@@ -74,10 +127,17 @@ pip install -r requirements.txt
 ### 3. Run the Server
 
 ```bash
+# Default (uses config.ini)
 python main.py
+
+# With custom host/port
+python main.py --host 127.0.0.1 --port 9000
+
+# With environment variables
+PORTFOLIO_MANAGER_PORT=8080 python main.py
 ```
 
-Server starts at `http://localhost:8000`
+Server starts at `http://localhost:8000` (or your configured host/port)
 
 ### 4. Access Documentation
 
@@ -298,6 +358,13 @@ file = logs/portfolio_manager.log
 
 See the companion test project: `portfolio-manager-tests/`
 
+### Version Compatibility
+
+This commit (`0.1.2`) is tested with:
+- `portfolio-manager-tests` version range: `0.1.0` to `0.2.0`
+
+When running tests, ensure the API version matches the test expectations.
+
 ## Future Extensions
 
 - [ ] SQLite/PostgreSQL database backend (`helper_db.py`)
@@ -316,6 +383,7 @@ portfolio-manager/
 ├── config_handler.py    # INI configuration
 ├── helper_database.py   # Database abstraction
 ├── helper_csv.py        # CSV implementation
+├── __init__.py          # Version and compatibility
 ├── config.ini           # Configuration
 ├── requirements.txt     # Dependencies
 ├── .gitignore
