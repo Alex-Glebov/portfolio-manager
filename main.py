@@ -24,6 +24,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from . import __version__
+
 # Local imports
 from auth import (
     Token,
@@ -94,7 +96,7 @@ except Exception as e:
 app = FastAPI(
     title="Portfolio Manager",
     description="Resource accumulation and warehouse portfolio management system with CSV persistence",
-    version="1.0.0",
+    version=__version__,
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -256,7 +258,7 @@ async def root():
     """Root endpoint - public"""
     return {
         "service": "Portfolio Manager API",
-        "version": "1.0.0",
+        "version": __version__,
         "description": "Resource accumulation and warehouse portfolio management",
         "auth_enabled": check_auth_enabled()
     }

@@ -13,19 +13,21 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+from . import __version__
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = Path("config.ini")
 
 
-def get_default_config() -> configparser.ConfigParser:
+def get_default_config() -> configparser.RawConfigParser:
     """Generate default configuration"""
-    config = configparser.ConfigParser()
+    config = configparser.RawConfigParser()
 
     # General settings
     config['DEFAULT'] = {
         'app_name': 'Portfolio Manager',
-        'version': '1.0.0',
+        'version': __version__,
         'debug': 'false'
     }
 
@@ -73,7 +75,7 @@ def get_default_config() -> configparser.ConfigParser:
     return config
 
 
-def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> configparser.ConfigParser:
+def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> configparser.RawConfigParser:
     """Load configuration from INI file, create default if not exists"""
     config = get_default_config()
 
@@ -91,7 +93,7 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> configparser.ConfigP
     return config
 
 
-def save_config(config: configparser.ConfigParser, config_path: Path = DEFAULT_CONFIG_PATH):
+def save_config(config: configparser.RawConfigParser, config_path: Path = DEFAULT_CONFIG_PATH):
     """Save configuration to INI file"""
     try:
         config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,7 +105,7 @@ def save_config(config: configparser.ConfigParser, config_path: Path = DEFAULT_C
         raise
 
 
-def setup_logging_from_config(config: configparser.ConfigParser):
+def setup_logging_from_config(config: configparser.RawConfigParser):
     """Configure Python logging from config settings"""
     log_config = config['logging']
 
@@ -145,7 +147,7 @@ def setup_logging_from_config(config: configparser.ConfigParser):
     logger.info(f"Logging configured at level: {level_name}")
 
 
-def get_initial_portfolio_settings(config: configparser.ConfigParser) -> Dict[str, Any]:
+def get_initial_portfolio_settings(config: configparser.RawConfigParser) -> Dict[str, Any]:
     """Get initial portfolio configuration"""
     section = config['initial_portfolio']
     return {
@@ -156,7 +158,7 @@ def get_initial_portfolio_settings(config: configparser.ConfigParser) -> Dict[st
     }
 
 
-def load_initial_portfolio_if_configured(config: configparser.ConfigParser) -> int:
+def load_initial_portfolio_if_configured(config: configparser.RawConfigParser) -> int:
     """Load initial portfolio from CSV if configured"""
     from helper_database import load_initial_transactions_from_csv
 
@@ -184,7 +186,7 @@ def load_initial_portfolio_if_configured(config: configparser.ConfigParser) -> i
 
 
 def update_config_value(
-    config: configparser.ConfigParser,
+    config: configparser.RawConfigParser,
     section: str,
     key: str,
     value: Any,
@@ -199,7 +201,7 @@ def update_config_value(
     logger.info(f"Updated config [{section}].{key} = {value}")
 
 
-def get_database_config(config: configparser.ConfigParser) -> Dict[str, Any]:
+def get_database_config(config: configparser.RawConfigParser) -> Dict[str, Any]:
     """Get database configuration"""
     section = config['database']
     return {
@@ -210,7 +212,7 @@ def get_database_config(config: configparser.ConfigParser) -> Dict[str, Any]:
     }
 
 
-def get_auth_config(config: configparser.ConfigParser) -> Dict[str, Any]:
+def get_auth_config(config: configparser.RawConfigParser) -> Dict[str, Any]:
     """Get authentication configuration"""
     section = config['auth']
     return {
@@ -221,7 +223,7 @@ def get_auth_config(config: configparser.ConfigParser) -> Dict[str, Any]:
     }
 
 
-def get_api_config(config: configparser.ConfigParser) -> Dict[str, Any]:
+def get_api_config(config: configparser.RawConfigParser) -> Dict[str, Any]:
     """Get API server configuration"""
     section = config['api']
     return {
